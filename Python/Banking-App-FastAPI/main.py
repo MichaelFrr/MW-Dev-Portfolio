@@ -1,16 +1,33 @@
+import datetime
+from bank_db import execute_write_query, execute_read_query
+from faker import Faker
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+import bcrypt
 from banking_app_class import bank_account
 
+
 app = FastAPI()
+fake = Faker()
+now = datetime.datetime.now()
 
 
 class AccountCreate(BaseModel):
     owner: str
-    balance: float
-    credit_score: int
+    password: str
+    email: str
+    # unused for now DOB: str
 
 
+class AccountOut(BaseModel):
+    account_id: int
+    owner: str
+
+    class Config:
+        orm_mode = True
+
+
+logs = []
 accounts_db = []
 
 
@@ -19,36 +36,64 @@ def root():
     return {"Hello": "World"}
 
 
-global_ID_POOL = 0
-
-
-def generate_id():
-    global global_ID_POOL
-    global_ID_POOL += 1
-    return global_ID_POOL
+def generate_iban():
+    iban = fake.iban()
+    return iban
 
 
 @app.post("/account")
 def create_account(account_data: AccountCreate):
     new_acc = bank_account(
         owner=account_data.owner,
-        balance=account_data.balance,
-        credit_score=account_data.credit_score,
-        id=generate_id()
+        email=account_data.email,
+        password=bcrypt.hashpw(account_data.password.encode(
+            'utf-8'), bcrypt.gensalt()).decode('utf-8'),
+        balance=0.0,
+        credit_score=600,
+        iban=generate_iban()
     )
+    read_query = '''SELECT * FROM "user" WHERE email = %s '''
+    acc_email = account_data.email
 
-    accounts_db.append(new_acc)
-    return {"message": f"Account created for {new_acc.owner}"}
+    email_mem = []
+    email_mem.append(acc_email)
+    result = execute_read_query(read_query, email_mem, "fetch_row", 2)
+    for email in email_mem:
+        print(result)
+        print(email)
+        if email == result:
+            raise HTTPException(status_code=400, detail="Email already exists")
+
+    insert_query = ''' insert into "user" (owner, email, password) values(%s,%s,%s)'''
+    execute_write_query(insert_query, (new_acc.owner,
+                                       new_acc.email, new_acc.password))
+
+    logs.append(
+        f"account has been created. data:{new_acc.owner, new_acc.email}, timestamp: {now}")
+
+    return {"message": f"Account created for {new_acc.owner}, {logs}"}
 
 
 @app.get("/account/{account_id}")
 def get_account(account_id: int):
-    for account in accounts_db:
-        if account.id == account_id:
-            return account.to_dict()
+    read_query = '''SELECT * FROM "user" WHERE ID = %s '''
+    acc_idstr = str(account_id)
+    result = execute_read_query(read_query, acc_idstr, "fetch_one")
+    if result:
+        return result
+
+    raise HTTPException(
+        status_code=404, detail=f"the account with the user id {account_id} has not been found")
 
 
 @app.get("/accounts")
 def list_accounts(limit: int = 10):
 
-    return accounts_db[0:limit]
+    read_query = '''SELECT * FROM "user" LIMIT %s '''
+    result = execute_read_query(read_query, (limit,))
+    return result
+
+
+@app.get("/logs")
+def get_logs(limit: int = 10):
+    return logs[0:limit]
