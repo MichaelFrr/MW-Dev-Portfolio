@@ -19,7 +19,7 @@
 
 * Data Validation & Serialization: `Pydantic / SQLModel`
 
-* Security: `JWT (JSON Web Tokens) & PassLib (Password Hashing)`
+* Security: `JWT (JSON Web Tokens) & Bcrypt (Password Hashing)`
 
 
 
